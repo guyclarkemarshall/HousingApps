@@ -97,7 +97,7 @@ Official dataset: [Tenant Satisfaction Measures: landlord-level data 2024](https
 ---
 
 ## 📜 License
-MIT License. See `LICENSE` for details.
+CC0 1.0 Universal. See `LICENSE` for details.
 
 ---
 
