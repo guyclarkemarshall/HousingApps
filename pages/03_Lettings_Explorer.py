@@ -221,7 +221,7 @@ if preset_long.empty:
                 for c in dims_present:
                     sub[c] = sub[c].astype(str).str.strip()
                     sub = sub[~sub[c].str.contains(r"\btotal\b", case=False, na=False)]
-                sub = sub.dropna(subset=["tenancies")
+                sub = sub.dropna(subset=["tenancies"])
                 sub = sub[sub["tenancies"] > 0]
                 sub["sheet"] = mm_sheet
                 for c in ["region","landlord_type","need","rent_type"]:
