@@ -3,13 +3,10 @@ import numpy as np
 import pandas as pd
 
 HEADLINE_PATTERN = re.compile(r"Proportion of respondents who report.*\((TP\d+)\)", re.IGNORECASE)
-SHEETS = [
-    ("TSM24_LCRA_Perception", "LCRA"),
-    ("TSM24_LCHO_Perception", "LCHO"),
-]
+SHEETS = [("TSM24_LCRA_Perception", "LCRA"), ("TSM24_LCHO_Perception", "LCHO")]
 
-def load_tsm_from_excel(file_bytes: bytes) -> pd.DataFrame:
-    """Return tidy DF with headline proportions only."""
+def load_tsm_from_excel_bytes(file_bytes: bytes) -> pd.DataFrame:
+    """Return tidy DF with headline proportions only, from an Excel file in memory."""
     def load_sheet(sheet: str, tenure: str) -> pd.DataFrame:
         df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet, header=2)
 
@@ -31,7 +28,6 @@ def load_tsm_from_excel(file_bytes: bytes) -> pd.DataFrame:
             "Required minimum sample size2,3":"required_min_sample",
             "Total sample size achieved":"sample_achieved",
         })
-        # apply tenure-specific relevant population
         core["relevant_population"] = np.where(
             tenure=="LCRA", core.get("relevant_population_lcra"),
             core.get("relevant_population_lcho")
@@ -41,8 +37,7 @@ def load_tsm_from_excel(file_bytes: bytes) -> pd.DataFrame:
         for c in df.columns:
             if isinstance(c, str) and "for each survey method" not in c:
                 m = HEADLINE_PATTERN.search(c)
-                if m:
-                    metric_cols[c] = m.group(1)
+                if m: metric_cols[c] = m.group(1)
         if not metric_cols:
             return pd.DataFrame()
 
@@ -64,6 +59,7 @@ def load_tsm_from_excel(file_bytes: bytes) -> pd.DataFrame:
 
     frames = []
     for sheet, tenure in SHEETS:
-        frames.append(load_sheet(sheet, tenure))
-    tidy = pd.concat([f for f in frames if not f.empty], ignore_index=True)
-    return tidy
+        part = load_sheet(sheet, tenure)
+        if not part.empty:
+            frames.append(part)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
