@@ -61,80 +61,95 @@ def load_ods_to_long(ods_bytes: bytes) -> dict:
     {
       "raw": dict of sheet_name -> DataFrame,
       "candidates": long_df (best-effort tidy with columns:
-           region, landlord_type, need, rent_type, tenancies)
+           region, landlord_type, need, rent_type, tenancies, sheet)
     }
     """
-    # Read all sheets (engine=odf requires odfpy)
+    def _norm(s):  # local normaliser (guard against non-str)
+        return re.sub(r"\s+", " ", str(s)).strip().lower()
+
+    # 1) Read all sheets (engine=odf requires odfpy)
     all_sheets = pd.read_excel(io.BytesIO(ods_bytes), sheet_name=None, engine="odf")
     raw = {}
     for name, df in all_sheets.items():
-        # clean empty heads/footers: drop fully empty columns/rows
-        try:
-            df = df.dropna(how="all")
-            df = df.loc[:, ~df.columns.to_series().apply(lambda c: df[c].isna().all())]
-        except Exception:
-            pass
+        if df is None:
+            continue
+        # Ensure string col names, drop all-empty rows/cols
+        df.columns = [str(c) for c in df.columns]
+        df = df.dropna(how="all")
+        df = df.loc[:, ~df.columns.to_series().apply(lambda c: df[c].isna().all())]
         raw[name] = df
 
-    # Collect candidate rows across sheets
     rows = []
     for name, df in raw.items():
-        if df is None or df.empty or len(df.columns) < 2:
+        if df.empty or len(df.columns) < 2:
             continue
 
-        # Try to find columns
-        c_region = find_col(df, COLUMN_SYNONYMS["region"])
+        # --- try to detect dimension columns ---
+        c_region   = find_col(df, COLUMN_SYNONYMS["region"])
         c_landlord = find_col(df, COLUMN_SYNONYMS["landlord_type"])
-        c_need = find_col(df, COLUMN_SYNONYMS["need"])
-        c_rent = find_col(df, COLUMN_SYNONYMS["rent_type"])
+        c_need     = find_col(df, COLUMN_SYNONYMS["need"])
+        c_rent     = find_col(df, COLUMN_SYNONYMS["rent_type"])
 
-        # Find a numeric "tenancies" column
-        c_tenancies = None
-        for key in COLUMN_SYNONYMS["tenancies"]:
-            candidate = find_col(df, [key])
-            if candidate and possible_numeric(df[candidate]):
-                c_tenancies = candidate
-                break
+        # --- detect 1+ numeric "tenancies-like" columns (duplicates possible) ---
+        ten_like_norms = {_norm(k) for k in COLUMN_SYNONYMS["tenancies"]}
+        ten_cols = []
+        for col in df.columns:
+            n = _norm(col)
+            if any(t in n for t in ten_like_norms) and possible_numeric(df[col]):
+                ten_cols.append(col)
 
-        # If we have at least one dimension + a numeric count, collect
         dims = [c for c in [c_region, c_landlord, c_need, c_rent] if c is not None]
-        if c_tenancies and dims:
-            sub = df[[c for c in dims + [c_tenancies] if c in df.columns]].copy()
-            # rename to canonical
-            colmap = {}
-            if c_region: colmap[c_region] = "region"
-            if c_landlord: colmap[c_landlord] = "landlord_type"
-            if c_need: colmap[c_need] = "need"
-            if c_rent: colmap[c_rent] = "rent_type"
-            colmap[c_tenancies] = "tenancies"
-            sub = sub.rename(columns=colmap)
-            # coerce numeric
-            sub["tenancies"] = pd.to_numeric(sub["tenancies"], errors="coerce")
-            # drop obvious non-data / totals if present (heuristic)
-            for c in ["region","landlord_type","need","rent_type"]:
-                if c in sub.columns:
-                    sub[c] = sub[c].astype(str).str.strip()
-                    sub = sub[~sub[c].str.contains("total", case=False, na=False)]
-            sub["sheet"] = name
-            rows.append(sub)
+        if not dims or not ten_cols:
+            continue
+
+        # Keep unique column labels in order
+        keep_cols = list(dict.fromkeys(dims + ten_cols))
+        sub = df[keep_cols].copy()
+
+        # Canonical rename for dims
+        colmap = {}
+        if c_region:   colmap[c_region] = "region"
+        if c_landlord: colmap[c_landlord] = "landlord_type"
+        if c_need:     colmap[c_need] = "need"
+        if c_rent:     colmap[c_rent] = "rent_type"
+        sub = sub.rename(columns=colmap)
+
+        # --- coalesce multiple "tenancies-like" columns into a single 'tenancies' ---
+        # Identify all columns (post-rename) that look like counts
+        ten_candidates = []
+        for col in sub.columns:
+            n = _norm(col)
+            if ("tenanc" in n) or ("lett" in n) or (n in {"count", "number of tenancies", "number"}):
+                ten_candidates.append(col)
+
+        # If nothing matched above, fall back to original ten_cols
+        if not ten_candidates:
+            ten_candidates = ten_cols
+
+        # Convert candidates to numeric and row-wise sum (min_count=1 keeps NaN when all NaN)
+        ten_df = sub[ten_candidates].apply(pd.to_numeric, errors="coerce")
+        sub["tenancies"] = ten_df.sum(axis=1, min_count=1)
+
+        # Drop other count columns now that we've coalesced
+        sub = sub.drop(columns=[c for c in ten_candidates if c != "tenancies" and c in sub.columns], errors="ignore")
+
+        # Clean text dims; drop obvious "total" rows
+        for c in ["region","landlord_type","need","rent_type"]:
+            if c in sub.columns:
+                sub[c] = sub[c].astype(str).str.strip()
+                sub = sub[~sub[c].str.contains(r"\btotal\b", case=False, na=False)]
+
+        # Finalise
+        sub["sheet"] = name
+        rows.append(sub)
 
     if not rows:
         return {"raw": raw, "candidates": pd.DataFrame()}
 
-    # Union all candidates
     long_df = pd.concat(rows, ignore_index=True)
-    # Standardise text
-    for c in ["region","landlord_type","need","rent_type"]:
-        if c in long_df.columns:
-            long_df[c] = (long_df[c]
-                          .astype(str)
-                          .str.replace(r"\s+", " ", regex=True)
-                          .str.strip()
-                          .replace({"nan": np.nan}))
 
-    # Keep only plausible regions (quick normalisation)
+    # Normalise region names (loose)
     if "region" in long_df.columns:
-        # Normalise region names (England regions; loose match)
         normalize = {
             "north east": "North East",
             "north west": "North West",
@@ -147,20 +162,20 @@ def load_ods_to_long(ods_bytes: bytes) -> dict:
             "south east": "South East",
             "south west": "South West",
         }
-        long_df["region_norm"] = long_df["region"].str.lower().map(normalize).fillna(long_df["region"])
-        long_df["region"] = long_df["region_norm"]
-        long_df = long_df.drop(columns=["region_norm"])
+        long_df["region"] = long_df["region"].str.lower().map(normalize).fillna(long_df["region"])
 
-    # Drop rows with no count
+    # Keep only positive counts
+    long_df["tenancies"] = pd.to_numeric(long_df["tenancies"], errors="coerce")
     long_df = long_df.dropna(subset=["tenancies"])
     long_df = long_df[long_df["tenancies"] > 0]
 
-    # Final canonical column set
+    # Ensure canonical columns present
     for c in ["region","landlord_type","need","rent_type"]:
         if c not in long_df.columns:
             long_df[c] = np.nan
 
     return {"raw": raw, "candidates": long_df[["region","landlord_type","need","rent_type","tenancies","sheet"]]}
+
 
 # -----------------------------------------------------------------------------
 # Data source controls
