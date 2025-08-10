@@ -67,16 +67,18 @@ def load_ods_to_long(ods_bytes: bytes) -> dict:
     def _norm(s):  # local normaliser (guard against non-str)
         return re.sub(r"\s+", " ", str(s)).strip().lower()
 
-    # 1) Read all sheets (engine=odf requires odfpy)
+    # 1) Read all sheets
     all_sheets = pd.read_excel(io.BytesIO(ods_bytes), sheet_name=None, engine="odf")
     raw = {}
     for name, df in all_sheets.items():
         if df is None:
             continue
-        # Ensure string col names, drop all-empty rows/cols
         df.columns = [str(c) for c in df.columns]
+        # drop all-empty rows/cols
         df = df.dropna(how="all")
         df = df.loc[:, ~df.columns.to_series().apply(lambda c: df[c].isna().all())]
+        # keep first occurrence when columns duplicate
+        df = df.loc[:, ~df.columns.duplicated()]
         raw[name] = df
 
     rows = []
@@ -84,27 +86,31 @@ def load_ods_to_long(ods_bytes: bytes) -> dict:
         if df.empty or len(df.columns) < 2:
             continue
 
-        # --- try to detect dimension columns ---
+        # --- detect dimension columns
         c_region   = find_col(df, COLUMN_SYNONYMS["region"])
         c_landlord = find_col(df, COLUMN_SYNONYMS["landlord_type"])
         c_need     = find_col(df, COLUMN_SYNONYMS["need"])
         c_rent     = find_col(df, COLUMN_SYNONYMS["rent_type"])
+        dims = [c for c in [c_region, c_landlord, c_need, c_rent] if c is not None]
+        if not dims:
+            continue
 
-        # --- detect 1+ numeric "tenancies-like" columns (duplicates possible) ---
+        # --- detect numeric “tenancies-like” columns (may be multiple)
         ten_like_norms = {_norm(k) for k in COLUMN_SYNONYMS["tenancies"]}
         ten_cols = []
         for col in df.columns:
             n = _norm(col)
             if any(t in n for t in ten_like_norms) and possible_numeric(df[col]):
                 ten_cols.append(col)
-
-        dims = [c for c in [c_region, c_landlord, c_need, c_rent] if c is not None]
-        if not dims or not ten_cols:
+        if not ten_cols:
             continue
 
-        # Keep unique column labels in order
-        keep_cols = list(dict.fromkeys(dims + ten_cols))
+        # Keep unique columns (dims + ten_cols) in order
+        keep_cols = [c for c in dict.fromkeys(dims + ten_cols) if c in df.columns]
+        if not keep_cols:
+            continue
         sub = df[keep_cols].copy()
+        sub = sub.loc[:, ~sub.columns.duplicated()]  # re-dedupe after slice
 
         # Canonical rename for dims
         colmap = {}
@@ -114,32 +120,35 @@ def load_ods_to_long(ods_bytes: bytes) -> dict:
         if c_rent:     colmap[c_rent] = "rent_type"
         sub = sub.rename(columns=colmap)
 
-        # --- coalesce multiple "tenancies-like" columns into a single 'tenancies' ---
-        # Identify all columns (post-rename) that look like counts
+        # Identify “tenancies-like” columns again post-rename and intersect with existing
         ten_candidates = []
         for col in sub.columns:
             n = _norm(col)
             if ("tenanc" in n) or ("lett" in n) or (n in {"count", "number of tenancies", "number"}):
                 ten_candidates.append(col)
-
-        # If nothing matched above, fall back to original ten_cols
         if not ten_candidates:
-            ten_candidates = ten_cols
+            ten_candidates = [c for c in ten_cols if c in sub.columns]
+        else:
+            ten_candidates = [c for c in ten_candidates if c in sub.columns]
 
-        # Convert candidates to numeric and row-wise sum (min_count=1 keeps NaN when all NaN)
+        if not ten_candidates:
+            # No usable numeric count columns left in this sheet
+            continue
+
+        # Convert to numeric and coalesce into a single 'tenancies' column
         ten_df = sub[ten_candidates].apply(pd.to_numeric, errors="coerce")
+        if ten_df.shape[1] == 0:
+            continue
         sub["tenancies"] = ten_df.sum(axis=1, min_count=1)
 
-        # Drop other count columns now that we've coalesced
-        sub = sub.drop(columns=[c for c in ten_candidates if c != "tenancies" and c in sub.columns], errors="ignore")
-
-        # Clean text dims; drop obvious "total" rows
-        for c in ["region","landlord_type","need","rent_type"]:
+        # Clean dims; drop obvious “total” rows
+        for c in ["region", "landlord_type", "need", "rent_type"]:
             if c in sub.columns:
                 sub[c] = sub[c].astype(str).str.strip()
                 sub = sub[~sub[c].str.contains(r"\btotal\b", case=False, na=False)]
 
         # Finalise
+        sub = sub.drop(columns=[c for c in ten_candidates if c in sub.columns], errors="ignore")
         sub["sheet"] = name
         rows.append(sub)
 
@@ -148,7 +157,7 @@ def load_ods_to_long(ods_bytes: bytes) -> dict:
 
     long_df = pd.concat(rows, ignore_index=True)
 
-    # Normalise region names (loose)
+    # Normalise region names
     if "region" in long_df.columns:
         normalize = {
             "north east": "North East",
@@ -175,7 +184,6 @@ def load_ods_to_long(ods_bytes: bytes) -> dict:
             long_df[c] = np.nan
 
     return {"raw": raw, "candidates": long_df[["region","landlord_type","need","rent_type","tenancies","sheet"]]}
-
 
 # -----------------------------------------------------------------------------
 # Data source controls
