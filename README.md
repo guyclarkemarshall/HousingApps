@@ -41,21 +41,17 @@ Edit
 ```bash
 git clone https://github.com/yourusername/tsm-dashboard.git
 cd tsm-dashboard
-2. Install dependencies
-bash
-Copy
-Edit
+### 2. Install dependencies
+```bash
 pip install -r requirements.txt
-3. Run Streamlit
-bash
-Copy
-Edit
+### 3. Run Streamlit
+```bash
 streamlit run app.py
-4. Open in browser
+### 4. Open in browser
 Streamlit will show a local URL (e.g. http://localhost:8501).
 Click to open the dashboard.
 
-🌐 Deploying to Streamlit Community Cloud
+## 🌐 Deploying to Streamlit Community Cloud
 Push your repo to GitHub.
 
 Go to share.streamlit.io.
@@ -69,14 +65,14 @@ https://<username>-<repo-name>.streamlit.app
 
 Optional: In the app settings, add a custom domain (e.g., dashboards.hearthsong.ai) and configure your DNS (CNAME record).
 
-🧩 Adding More Dashboards
+## 🧩 Adding More Dashboards
 Create a new file in pages/ (e.g. 02_Other_Dashboard.py).
 
 Use the same pattern: data loader → filters → charts → insights panel.
 
 Push to GitHub. Community Cloud redeploys automatically.
 
-🛠 Dependencies
+## 🛠 Dependencies
 See requirements.txt:
 
 streamlit
@@ -91,11 +87,11 @@ openpyxl
 
 requests
 
-📄 Data Source
+## 📄 Data Source
 Official dataset: Tenant Satisfaction Measures: landlord-level data 2024
 
-📜 License
+## 📜 License
 See LICENSE for details.
 
-👤 Author
-Built by Guy Marshall (Hearthsong.ai) with GPT-5 assistance.
+## 👤 Author
+Built by Guy Marshall with GPT-5 assistance.
