@@ -22,6 +22,7 @@ Defaults to the official TSM Excel file hosted by GOV.UK but supports uploading 
   - Distribution (Box Plot) split by Region or Landlord type
 - **Insights panel**: KPIs, top/bottom performers, percentiles, outlier counts.
 - **Download current view**: Export filtered data as CSV.
+- **Benchmarking page**: Basic comparison between providers on distribution curves.
 
 ## 📂 Project Structure
 ```
@@ -31,7 +32,8 @@ utils/
     io_excel.py          # Excel parsing & tidying
     charts.py            # Shared Plotly chart builders
 pages/
-    01_TSM_Dashboard.py  # Main dashboard page
+    01_TSM_Dashboard.py  # Overview dashboard page with filters
+    02_Provider_Benchmarks.py  # Individual provider insights
     99_About.py          # About / credits page (optional)
 ```
 
