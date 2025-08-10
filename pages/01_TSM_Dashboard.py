@@ -86,6 +86,21 @@ if region != "All": d = d[d["region"]==region]
 if not gdis: d = d[(d["group_size"].fillna(-1) >= gmin) & (d["group_size"].fillna(-1) <= gmax)]
 if not sdis: d = d[(d["sample_achieved"].fillna(-1) >= smin) & (d["sample_achieved"].fillna(-1) <= smax)]
 
+# ---- Charts ----
+st.subheader("Leaderboard (Top 15)")
+st.plotly_chart(leaderboard_bar(d), use_container_width=True)
+
+st.subheader("Score vs Size")
+x_choice = st.selectbox("X-axis", ["group_size","sample_achieved","relevant_population"], index=0, format_func=lambda s: s.replace("_"," ").title())
+if d[x_choice].dropna().empty:
+    x_choice = "sample_achieved"
+st.plotly_chart(scatter_with_trend(d, x_choice), use_container_width=True)
+
+st.subheader("Distribution (Box Plot)")
+split_by = st.radio("Split by", ["region","landlord_type"], horizontal=True, index=0)
+st.plotly_chart(distribution_box(d, split_by), use_container_width=True)
+
+
 # ---- Tiny Insights Panel (respects current filters) ----
 import io
 
@@ -121,7 +136,7 @@ def _insights_table(df):
 
 ins = _insights_table(d)
 
-st.markdown("### 🔎 Insights (filtered)")
+st.markdown("### 🔎 Insights (based on current filter)")
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("N (landlords)", f"{ins['n']:,}")
 c2.metric("Mean", f"{ins['mean']:.1f}%" if ins['mean'] is not None else "—")
@@ -155,16 +170,3 @@ st.download_button(
 )
 st.divider()
 
-# ---- Charts ----
-st.subheader("Leaderboard (Top 15)")
-st.plotly_chart(leaderboard_bar(d), use_container_width=True)
-
-st.subheader("Score vs Size")
-x_choice = st.selectbox("X-axis", ["group_size","sample_achieved","relevant_population"], index=0, format_func=lambda s: s.replace("_"," ").title())
-if d[x_choice].dropna().empty:
-    x_choice = "sample_achieved"
-st.plotly_chart(scatter_with_trend(d, x_choice), use_container_width=True)
-
-st.subheader("Distribution (Box Plot)")
-split_by = st.radio("Split by", ["region","landlord_type"], horizontal=True, index=0)
-st.plotly_chart(distribution_box(d, split_by), use_container_width=True)
