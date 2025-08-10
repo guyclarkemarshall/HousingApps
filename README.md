@@ -1,5 +1,5 @@
 # HousingApps
-Various Analytical and Data tools for Social Housing
+Analytical and Data tools for Social Housing
 
 ---
 
