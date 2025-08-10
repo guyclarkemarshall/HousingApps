@@ -1,13 +1,13 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="Hearthsong Dashboards",
+    page_title="Social Housing Dashboards",
     page_icon="📊",
     layout="wide",
 )
 
-st.markdown("## 🔥 Hearthsong Dashboards")
+st.markdown("## Social Housing Dashboards")
 st.write(
-    "Interactive housing analytics. Use the left sidebar to navigate dashboards."
+    "Interactive housing analytics, using 2024 TSM data as a proof of concept. Use the left sidebar to navigate dashboards."
 )
-st.info("Tip: Nothing is stored server-side.")
+st.info("Tip: This is all free and open source. The author is very bad at coding and this took under 1hr.")
