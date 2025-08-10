@@ -86,6 +86,75 @@ if region != "All": d = d[d["region"]==region]
 if not gdis: d = d[(d["group_size"].fillna(-1) >= gmin) & (d["group_size"].fillna(-1) <= gmax)]
 if not sdis: d = d[(d["sample_achieved"].fillna(-1) >= smin) & (d["sample_achieved"].fillna(-1) <= smax)]
 
+# ---- Tiny Insights Panel (respects current filters) ----
+import io
+
+def _insights_table(df):
+    if df.empty:
+        return {
+            "n": 0, "mean": None, "median": None,
+            "p10": None, "p90": None, "iqr_outliers": 0,
+            "top": [], "bottom": []
+        }
+    s = df["proportion"].dropna().astype(float)
+    q1, q3 = s.quantile([0.25, 0.75])
+    iqr = q3 - q1
+    lower, upper = q1 - 1.5*iqr, q3 + 1.5*iqr
+    iqr_outliers = int(((s < lower) | (s > upper)).sum())
+
+    # Top / Bottom 3 by current metric & filters
+    top = (df.sort_values("proportion", ascending=False)
+             .head(3)[["landlord_name","proportion"]].values.tolist())
+    bottom = (df.sort_values("proportion", ascending=True)
+                .head(3)[["landlord_name","proportion"]].values.tolist())
+
+    return {
+        "n": int(len(s)),
+        "mean": float(s.mean()),
+        "median": float(s.median()),
+        "p10": float(s.quantile(0.10)),
+        "p90": float(s.quantile(0.90)),
+        "iqr_outliers": iqr_outliers,
+        "top": top,
+        "bottom": bottom
+    }
+
+ins = _insights_table(d)
+
+st.markdown("### 🔎 Insights (filtered)")
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("N (landlords)", f"{ins['n']:,}")
+c2.metric("Mean", f"{ins['mean']:.1f}%" if ins['mean'] is not None else "—")
+c3.metric("Median", f"{ins['median']:.1f}%" if ins['median'] is not None else "—")
+c4.metric("P10 → P90", f"{ins['p10']:.1f}% → {ins['p90']:.1f}%" if ins['p10'] is not None else "—")
+c5.metric("IQR outliers", f"{ins['iqr_outliers']}")
+
+# Top/Bottom quick lists
+colA, colB = st.columns(2)
+with colA:
+    st.caption("**Top 3 (by current metric)**")
+    if ins["top"]:
+        for name, val in ins["top"]:
+            st.write(f"• {name}: **{val:.1f}%**")
+    else:
+        st.write("—")
+with colB:
+    st.caption("**Bottom 3 (by current metric)**")
+    if ins["bottom"]:
+        for name, val in ins["bottom"]:
+            st.write(f"• {name}: **{val:.1f}%**")
+    else:
+        st.write("—")
+
+# Download current view (CSV)
+st.download_button(
+    label="📥 Download current view (CSV)",
+    data=d.to_csv(index=False).encode("utf-8"),
+    file_name=f"tsm_view_{tenure}_{metric}_{region.replace(' ','_')}.csv",
+    mime="text/csv",
+)
+st.divider()
+
 # ---- Charts ----
 st.subheader("Leaderboard (Top 15)")
 st.plotly_chart(leaderboard_bar(d), use_container_width=True)
